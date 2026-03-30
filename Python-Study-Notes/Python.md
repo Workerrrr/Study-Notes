@@ -2137,3 +2137,60 @@ f.close()
 f = open("python.txt", "a", encoding = "UTF-8")
 ```
 
+### 异常处理
+
+#### Python中常见的异常
+
+- `AttributeError`：试图访问对象没有的属性
+- `IOError`：输入/输出异常
+- `ImportError`：无法导入模块或包
+- `NameError`：标识符未定义
+- `TypeError`：数据类型错误
+- `ValueError`：参数类型正确但是不合法
+- `IndexError`：索引不存在
+- `KeyError`：键不存在
+- `ZeroDivisionError`：除数为0
+- `Exception`：表示任意异常情况
+
+#### 异常处理方式
+
+- `try...except`语句
+
+```python
+try:
+	[语句]
+except [<异常类型> as <变量名>]:
+	[语句]
+```
+
+检测try关键字后的语句块，如果存在except关键字后的异常类型，则执行except控制的语句块
+
+`try...except`语句还有两个关键字，`else`和`finally`
+
+- `else`关键字
+
+当`try`关键字控制的语句块没有异常时，则执行`else`关键字控制的语句
+
+- `finally`关键字
+
+无论`try`关键字控制的语句块是否存在异常，总是执行`finally`关键字控制的语句块
+
+当`except`关键字控制的语句块中存在`return`语句时，仍然会执行其下方`finally`关键字控制的语句
+
+`try...except`语句也可以写成多分支结构
+
+```python
+try:
+	<语句块>
+except:
+	<语句块>
+except:
+	<语句块>
+except:
+	<语句块>
+else:
+	<语句块>
+finally:
+	<语句块>
+```
+
