@@ -171,3 +171,230 @@ if( isset( $_GET[ 'Login' ] ) ) {
 
 ![image-20260330175547961](./img/image-20260330175547961.png)
 
+
+
+### Command Injection（命令注入）
+
+![image-20260331153124814](./img/image-20260331153124814.png)
+
+#### Low
+
+先Ping一个正常IP试试，`ping 1.1.1.1`
+
+![image-20260331153509873](./img/image-20260331153509873.png)
+
+乱码了不用管，页面编码问题
+
+重点来了，这个回显结果看起来是**Windows**服务器，这是显然，因为我使用的是PHPStudy本地部署
+
+让我们来看看**Linux**服务器的回显结果（假设固定-c 4）
+
+![image-20260331154530672](./img/image-20260331154530672.png)
+
+具体命令注入方法见 [命令注入.md](./命令注入.md)
+
+直接拼接 `& whoami` 试试
+
+![image-20260331161654793](./img/image-20260331161654793.png)
+
+命令成功执行，没有过滤
+
+##### 代码审计
+
+```php
+<?php
+
+if( isset( $_POST[ 'Submit' ]  ) ) {
+    // Get input
+    $target = $_REQUEST[ 'ip' ];
+
+    // Determine OS and execute the ping command.
+    if( stristr( php_uname( 's' ), 'Windows NT' ) ) {
+        // Windows
+        $cmd = shell_exec( 'ping  ' . $target );
+    }
+    else {
+        // *nix
+        $cmd = shell_exec( 'ping  -c 4 ' . $target );
+    }
+
+    // Feedback for the end user
+    echo "<pre>{$cmd}</pre>";
+}
+
+?>
+```
+
+- `$cmd = shell_exec( 'ping  ' . $target );`
+
+  接收用户输入的命令后，没有过滤直接执行，造成命令注入的直接原因
+
+#### Medium
+
+注入的步骤和结果与Low一致，让我误以为没有区别，所以直接看看代码
+
+##### 代码审计
+
+```php
+<?php
+
+if( isset( $_POST[ 'Submit' ]  ) ) {
+    // Get input
+    $target = $_REQUEST[ 'ip' ];
+
+    // Set blacklist
+    $substitutions = array(
+        '&&' => '',
+        ';'  => '',
+    );
+
+    // Remove any of the characters in the array (blacklist).
+    $target = str_replace( array_keys( $substitutions ), $substitutions, $target );
+
+    // Determine OS and execute the ping command.
+    if( stristr( php_uname( 's' ), 'Windows NT' ) ) {
+        // Windows
+        $cmd = shell_exec( 'ping  ' . $target );
+    }
+    else {
+        // *nix
+        $cmd = shell_exec( 'ping  -c 4 ' . $target );
+    }
+
+    // Feedback for the end user
+    echo "<pre>{$cmd}</pre>";
+}
+
+?>
+```
+
+- ```php
+  // Set blacklist
+      $substitutions = array(
+          '&&' => '',
+          ';'  => '',
+      );
+  ```
+
+  增加了黑名单机制，但是黑名单数量太少，只过滤了`&&`和`;`，换一种连接符就可以直接绕过
+
+#### High
+
+同样尝试`& whoami`
+
+![image-20260331163311276](./img/image-20260331163311276.png)
+
+虽然是一串乱码，但是可以猜测出这是被过滤的提示
+
+经过几次测试，都被过滤了，我们直接看看源代码
+
+```php
+<?php
+
+if( isset( $_POST[ 'Submit' ]  ) ) {
+    // Get input
+    $target = trim($_REQUEST[ 'ip' ]);
+
+    // Set blacklist
+    $substitutions = array(
+        '&'  => '',
+        ';'  => '',
+        '| ' => '',
+        '-'  => '',
+        '$'  => '',
+        '('  => '',
+        ')'  => '',
+        '`'  => '',
+        '||' => '',
+    );
+
+    // Remove any of the characters in the array (blacklist).
+    $target = str_replace( array_keys( $substitutions ), $substitutions, $target );
+
+    // Determine OS and execute the ping command.
+    if( stristr( php_uname( 's' ), 'Windows NT' ) ) {
+        // Windows
+        $cmd = shell_exec( 'ping  ' . $target );
+    }
+    else {
+        // *nix
+        $cmd = shell_exec( 'ping  -c 4 ' . $target );
+    }
+
+    // Feedback for the end user
+    echo "<pre>{$cmd}</pre>";
+}
+
+?>
+```
+
+- ```php
+  $substitutions = array(
+          '&'  => '',
+          ';'  => '',
+          '| ' => '',
+          '-'  => '',
+          '$'  => '',
+          '('  => '',
+          ')'  => '',
+          '`'  => '',
+          '||' => '',
+      );
+  ```
+
+  依然使用了黑名单机制，这次黑名单的数量更多；观察数组元素，虽然`| `被过滤了，但是`|`后面有个空格，并且过滤处理使用`str_replace`函数，直接使用`|`就可以直接绕过
+
+#### Impossible
+
+```php
+<?php
+
+if( isset( $_POST[ 'Submit' ]  ) ) {
+    // Check Anti-CSRF token
+    checkToken( $_REQUEST[ 'user_token' ], $_SESSION[ 'session_token' ], 'index.php' );
+
+    // Get input
+    $target = $_REQUEST[ 'ip' ];
+    $target = stripslashes( $target );
+
+    // Split the IP into 4 octects
+    $octet = explode( ".", $target );
+
+    // Check IF each octet is an integer
+    if( ( is_numeric( $octet[0] ) ) && ( is_numeric( $octet[1] ) ) && ( is_numeric( $octet[2] ) ) && ( is_numeric( $octet[3] ) ) && ( sizeof( $octet ) == 4 ) ) {
+        // If all 4 octets are int's put the IP back together.
+        $target = $octet[0] . '.' . $octet[1] . '.' . $octet[2] . '.' . $octet[3];
+
+        // Determine OS and execute the ping command.
+        if( stristr( php_uname( 's' ), 'Windows NT' ) ) {
+            // Windows
+            $cmd = shell_exec( 'ping  ' . $target );
+        }
+        else {
+            // *nix
+            $cmd = shell_exec( 'ping  -c 4 ' . $target );
+        }
+
+        // Feedback for the end user
+        echo "<pre>{$cmd}</pre>";
+    }
+    else {
+        // Ops. Let the user name theres a mistake
+        echo '<pre>ERROR: You have entered an invalid IP.</pre>';
+    }
+}
+
+// Generate Anti-CSRF token
+generateSessionToken();
+
+?>
+```
+
+在`Impossible`难度中，页面接收用户输入后，先使用`stripslashes`函数删除字符串中的反斜杠`\`，再根据点号`.`分割，并判断每个元素是否为数字或数字字符串，同时判断分割后的数组元素数量，最后再执行命令；并且同时引入Token，**不存在命令注入漏洞**
+
+
+
+### CSRF（跨站请求伪造）
+
+#### Low
+
