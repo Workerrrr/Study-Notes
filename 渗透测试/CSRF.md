@@ -101,3 +101,32 @@ GET请求是浏览器自动执行，而POST请求则需用户主动提交
 
 #### CSRF利用
 
+##### 挖掘方法
+
+使用工具抓包后，修改请求报文的`Referer`字段再提交，如果能正常请求，则存在CSRF漏洞
+
+##### 示例
+
+这里使用DVWA的CSRF示例
+
+![image-20260402142526279](./img/image-20260402142526279.png)
+
+直接点击`Change`按钮，发现直接使用了GET传参
+
+![image-20260402142644638](./img/image-20260402142644638.png)
+
+我没有输入任何数据，于是在`Test Credentials`页面中不需要密码就能够直接登录
+
+第二次我们直接修改`url`，模仿用户请求攻击者制作的假的外部资源
+
+![image-20260402142936590](./img/image-20260402143701111.png)
+
+此时直接回车，访问链接，密码就更改成功了，而作为用户的我们毫不知情，因为我们根本没有点击过`Change`按钮
+
+如果这个示例你有点不能理解，可以换一个方式，将修改密码的`url`写入到一个具有`src`属性的`html`标签中，比如以下代码
+
+```html
+<img src="http://http://dvwa/vulnerabilities/csrf/?password_new=123&password_conf=123&Change=Change#" border="0" style="display:none;"/>
+```
+
+然后保存为`1.html`，只要你访问`1.html`，密码就会被修改为`123`

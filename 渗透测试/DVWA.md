@@ -169,8 +169,6 @@ if( isset( $_GET[ 'Login' ] ) ) {
 
 可以点击左上角的**调试执行**查看结果，获取到`user_token`值
 
-![image-20260330175547961](./img/image-20260330175547961.png)
-
 
 
 ### Command Injection（命令注入）
@@ -396,5 +394,219 @@ generateSessionToken();
 
 ### CSRF（跨站请求伪造）
 
+![image-20260402143315216](./img/image-20260402143315216.png)
+
+模拟的一个后台更改管理员密码的界面
+
 #### Low
 
+我们直接点`Change`按钮，模仿管理员正常更改密码
+
+![image-20260402143439441](./img/image-20260402143439441.png)
+
+页面提示`Password Changed.`，密码更改成功，我们再观察`url`栏
+
+![](./img/image-20260402142644638.png)
+
+使用了GET方式提交，及其危险，再到`Test Credentials`测试
+
+![image-20260402143700399](./img/image-20260402143700399.png)
+
+确认密码更改是成功的，接下来我们就可以开始进行CSRF攻击
+
+直接在`url`栏修改参数值，模拟用户的浏览器GET请求伪造的外部资源链接
+
+![](./img/image-20260402143701111.png)
+
+回车执行，到`Test Credentials`测试
+
+![](./img/image-20260402143700399.png)
+
+密码修改成功，攻击成功
+
+##### 代码审计
+
+```php
+<?php
+
+if( isset( $_GET[ 'Change' ] ) ) {
+    // Get input
+    $pass_new  = $_GET[ 'password_new' ];
+    $pass_conf = $_GET[ 'password_conf' ];
+
+    // Do the passwords match?
+    if( $pass_new == $pass_conf ) {
+        // They do!
+        $pass_new = ((isset($GLOBALS["___mysqli_ston"]) && is_object($GLOBALS["___mysqli_ston"])) ? mysqli_real_escape_string($GLOBALS["___mysqli_ston"],  $pass_new ) : ((trigger_error("[MySQLConverterToo] Fix the mysql_escape_string() call! This code does not work.", E_USER_ERROR)) ? "" : ""));
+        $pass_new = md5( $pass_new );
+
+        // Update the database
+        $current_user = dvwaCurrentUser();
+        $insert = "UPDATE `users` SET password = '$pass_new' WHERE user = '" . $current_user . "';";
+        $result = mysqli_query($GLOBALS["___mysqli_ston"],  $insert ) or die( '<pre>' . ((is_object($GLOBALS["___mysqli_ston"])) ? mysqli_error($GLOBALS["___mysqli_ston"]) : (($___mysqli_res = mysqli_connect_error()) ? $___mysqli_res : false)) . '</pre>' );
+
+        // Feedback for the user
+        echo "<pre>Password Changed.</pre>";
+    }
+    else {
+        // Issue with passwords matching
+        echo "<pre>Passwords did not match.</pre>";
+    }
+
+    ((is_null($___mysqli_res = mysqli_close($GLOBALS["___mysqli_ston"]))) ? false : $___mysqli_res);
+}
+
+?>
+```
+
+该代码接收GET方式提交的参数，进行对比后直接更新数据库，没有做任何检查
+
+#### Medium
+
+直接尝试在`url`修改密码，但是报错
+
+![image-20260402145323978](./img/image-20260402145323978.png)
+
+我们抓包分析一下
+
+![image-20260402145543415](./img/image-20260402145543415.png)
+
+这是正常修改密码的请求，对比一下我们直接修改`url`后的请求
+
+![image-20260402145646808](./img/image-20260402145646808.png)
+
+可以看到，直接修改`url`的请求缺少了`Referer`字段，我们只要在请求中加上该字段即可成功攻击
+
+![image-20260402145816408](./img/image-20260402145816408.png)
+
+![](./img/image-20260402143700399.png)
+
+##### 代码审计
+
+```php
+<?php
+
+if( isset( $_GET[ 'Change' ] ) ) {
+    // Checks to see where the request came from
+    if( stripos( $_SERVER[ 'HTTP_REFERER' ] ,$_SERVER[ 'SERVER_NAME' ]) !== false ) {
+        // Get input
+        $pass_new  = $_GET[ 'password_new' ];
+        $pass_conf = $_GET[ 'password_conf' ];
+
+        // Do the passwords match?
+        if( $pass_new == $pass_conf ) {
+            // They do!
+            $pass_new = ((isset($GLOBALS["___mysqli_ston"]) && is_object($GLOBALS["___mysqli_ston"])) ? mysqli_real_escape_string($GLOBALS["___mysqli_ston"],  $pass_new ) : ((trigger_error("[MySQLConverterToo] Fix the mysql_escape_string() call! This code does not work.", E_USER_ERROR)) ? "" : ""));
+            $pass_new = md5( $pass_new );
+
+            // Update the database
+            $current_user = dvwaCurrentUser();
+            $insert = "UPDATE `users` SET password = '$pass_new' WHERE user = '" . $current_user . "';";
+            $result = mysqli_query($GLOBALS["___mysqli_ston"],  $insert ) or die( '<pre>' . ((is_object($GLOBALS["___mysqli_ston"])) ? mysqli_error($GLOBALS["___mysqli_ston"]) : (($___mysqli_res = mysqli_connect_error()) ? $___mysqli_res : false)) . '</pre>' );
+
+            // Feedback for the user
+            echo "<pre>Password Changed.</pre>";
+        }
+        else {
+            // Issue with passwords matching
+            echo "<pre>Passwords did not match.</pre>";
+        }
+    }
+    else {
+        // Didn't come from a trusted source
+        echo "<pre>That request didn't look correct.</pre>";
+    }
+
+    ((is_null($___mysqli_res = mysqli_close($GLOBALS["___mysqli_ston"]))) ? false : $___mysqli_res);
+}
+
+?>
+```
+
+- `stripos( $_SERVER[ 'HTTP_REFERER' ] ,$_SERVER[ 'SERVER_NAME' ])`
+
+  使用`stripos`检查`Referer`字段中是否存在`SERVER_NAME`值（`Host`字段值），但该函数只检查第二个字符串在第一个字符串中第一次出现位置，只有当第二个字符串不是第一个字符串的子串时才返回`FALSE`，并且不区分大小写；攻击者可以利用包含多个关键字的超长字符串轻松绕过该检查
+
+#### High
+
+这个难度引入了`token`，用户每次访问页面token都会变化，并且请求时必须提供是上一次服务器提供的`token`
+
+![image-20260402155106197](./img/image-20260402155106197.png)
+
+这里我们可以通过提取响应体中的`token`的方式成功修改密码，但这并非`CSRF`的利用方式；`CSRF`始终是被动攻击，正确的做法是制作一个恶意页面，然后自己扮演被害者访问该页面
+
+##### 代码审计
+
+```php
+<?php
+
+$change = false;
+$request_type = "html";
+$return_message = "Request Failed";
+
+if ($_SERVER['REQUEST_METHOD'] == "POST" && array_key_exists ("CONTENT_TYPE", $_SERVER) && $_SERVER['CONTENT_TYPE'] == "application/json") {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $request_type = "json";
+    if (array_key_exists("HTTP_USER_TOKEN", $_SERVER) &&
+        array_key_exists("password_new", $data) &&
+        array_key_exists("password_conf", $data) &&
+        array_key_exists("Change", $data)) {
+        $token = $_SERVER['HTTP_USER_TOKEN'];
+        $pass_new = $data["password_new"];
+        $pass_conf = $data["password_conf"];
+        $change = true;
+    }
+} else {
+    if (array_key_exists("user_token", $_REQUEST) &&
+        array_key_exists("password_new", $_REQUEST) &&
+        array_key_exists("password_conf", $_REQUEST) &&
+        array_key_exists("Change", $_REQUEST)) {
+        $token = $_REQUEST["user_token"];
+        $pass_new = $_REQUEST["password_new"];
+        $pass_conf = $_REQUEST["password_conf"];
+        $change = true;
+    }
+}
+
+if ($change) {
+    // Check Anti-CSRF token
+    checkToken( $token, $_SESSION[ 'session_token' ], 'index.php' );
+
+    // Do the passwords match?
+    if( $pass_new == $pass_conf ) {
+        // They do!
+        $pass_new = mysqli_real_escape_string ($GLOBALS["___mysqli_ston"], $pass_new);
+        $pass_new = md5( $pass_new );
+
+        // Update the database
+        $current_user = dvwaCurrentUser();
+        $insert = "UPDATE `users` SET password = '" . $pass_new . "' WHERE user = '" . $current_user . "';";
+        $result = mysqli_query($GLOBALS["___mysqli_ston"],  $insert );
+
+        // Feedback for the user
+        $return_message = "Password Changed.";
+    }
+    else {
+        // Issue with passwords matching
+        $return_message = "Passwords did not match.";
+    }
+
+    mysqli_close($GLOBALS["___mysqli_ston"]);
+
+    if ($request_type == "json") {
+        generateSessionToken();
+        header ("Content-Type: application/json");
+        print json_encode (array("Message" =>$return_message));
+        exit;
+    } else {
+        echo "<pre>" . $return_message . "</pre>";
+    }
+}
+
+// Generate Anti-CSRF token
+generateSessionToken();
+
+?>
+```
+
+**High**级别的代码增加了`Anti-CSRF token`机制，顾名思义该机制就是为了防止`CSRF`的漏洞；但是，仍然使用`GET`方式提交，造成了`token`泄露
