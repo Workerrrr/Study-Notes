@@ -538,7 +538,7 @@ if( isset( $_GET[ 'Change' ] ) ) {
 ##### 代码审计
 
 ```php
-<?php
+![image-20260407143940198](./img/image-20260407143940198.png)<?php
 
 $change = false;
 $request_type = "html";
@@ -610,3 +610,16 @@ generateSessionToken();
 ```
 
 **High**级别的代码增加了`Anti-CSRF token`机制，顾名思义该机制就是为了防止`CSRF`的漏洞；但是，仍然使用`GET`方式提交，造成了`token`泄露
+
+### File Inclusion（文件包含）
+
+![](./img/image-20260407143940198.png)
+
+#### Low
+
+![image-20260407165041866](./img/image-20260407165041866.png)
+
+可以看到URL中的文件包含目录，尝试一个任意文件`1.txt`
+
+![image-20260407165612474](./img/image-20260407165612474.png)
+
