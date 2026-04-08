@@ -611,6 +611,8 @@ generateSessionToken();
 
 **High**级别的代码增加了`Anti-CSRF token`机制，顾名思义该机制就是为了防止`CSRF`的漏洞；但是，仍然使用`GET`方式提交，造成了`token`泄露
 
+
+
 ### File Inclusion（文件包含）
 
 ![](./img/image-20260407143940198.png)
@@ -619,7 +621,110 @@ generateSessionToken();
 
 ![image-20260407165041866](./img/image-20260407165041866.png)
 
-可以看到URL中的文件包含目录，尝试一个任意文件`1.txt`
+可以看到URL中的文件包含目录，尝试一个任意文件`D:\大咪咪.txt`
 
-![image-20260407165612474](./img/image-20260407165612474.png)
+![](./img/image-20260407144545916.png)
+
+##### 代码审计
+
+```php
+<?php
+
+// The page we wish to display
+$file = $_GET[ 'page' ];
+
+?>
+```
+
+网页对文件包含的内容没有做任何防护
+
+~~*别人要了你就给？*~~
+
+#### Medium
+
+这个难度的测试结果是一样的，所以直接看源码
+
+##### 代码审计
+
+```php
+<?php
+
+// The page we wish to display
+$file = $_GET[ 'page' ];
+
+// Input validation
+$file = str_replace( array( "http://", "https://" ), "", $file );
+$file = str_replace( array( "../", "..\\" ), "", $file );
+
+?>
+```
+
+难怪测试结果是一样的，这个难度增加了过滤，但是只过滤了远程文件包含（RFI）和相对路径，没有过滤本地文件包含（LFI）和绝对路径
+
+#### High
+
+尝试了几次，用伪协议绕过了
+
+![image-20260408150522225](./img/image-20260408150522225.png)
+
+##### 代码审计
+
+```php
+<?php
+
+// The page we wish to display
+$file = $_GET[ 'page' ];
+
+// Input validation
+if( !fnmatch( "file*", $file ) && $file != "include.php" ) {
+    // This isn't the page we want!
+    echo "ERROR: File not found!";
+    exit;
+}
+
+?>
+```
+
+- `fnmatch( "file*", $file )`
+
+  检测包含的文件是不是以`file`开头
+
+- `$file != "include.php"`
+
+  检测包含的文件是不是`include.php`
+
+这个过滤逻辑有非常严重的问题，两个条件：文件名不是`file`开头、文件不是`include.php`使用了`&&`连接，需要同时满足两个条件才能被过滤，`fnmatch()`函数几乎没有任何防护功能
+
+#### Impossible
+
+##### 代码审计
+
+```php
+<?php
+
+// The page we wish to display
+$file = $_GET[ 'page' ];
+
+// Only allow include.php or file{1..3}.php
+$configFileNames = [
+    'include.php',
+    'file1.php',
+    'file2.php',
+    'file3.php',
+];
+
+if( !in_array($file, $configFileNames) ) {
+    // This isn't the page we want!
+    echo "ERROR: File not found!";
+    exit;
+}
+
+?>
+```
+
+创建了一个白名单，只允许包含白名单内的文件
+
+
+
+### File Upload（文件上传）
 
