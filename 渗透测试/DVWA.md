@@ -728,3 +728,160 @@ if( !in_array($file, $configFileNames) ) {
 
 ### File Upload（文件上传）
 
+![image-20260414150144675](./img/image-20260414150144675.png)
+
+#### Low
+
+先上传一个txt试试
+
+![image-20260414151050446](./img/image-20260414151050446.png)
+
+成功上传了，经过测试呢该文件上传没有任何防护，是个文件就能传，我们直接看源码
+
+##### 代码审计
+
+```php
+<?php
+
+if( isset( $_POST[ 'Upload' ] ) ) {
+    // Where are we going to be writing to?
+    $target_path  = DVWA_WEB_PAGE_TO_ROOT . "hackable/uploads/";
+    $target_path .= basename( $_FILES[ 'uploaded' ][ 'name' ] );
+
+    // Can we move the file to the upload folder?
+    if( !move_uploaded_file( $_FILES[ 'uploaded' ][ 'tmp_name' ], $target_path ) ) {
+        // No
+        echo '<pre>Your image was not uploaded.</pre>';
+    }
+    else {
+        // Yes!
+        echo "<pre>{$target_path} succesfully uploaded!</pre>";
+    }
+}
+
+?>
+```
+
+网页对文件上传上传没有做任何验证处理
+
+#### Medium
+
+![image-20260414152256108](./img/image-20260414152256108.png)
+
+上传`txt`文件被过滤了，看了至少是有文件类型的验证，前端看了一眼没看到，那肯定是后端的
+
+使用`POST`提交，直接改MIME试试行不行
+
+![image-20260414152958560](./img/image-20260414152958560.png)
+
+![image-20260414153024378](./img/image-20260414153024378.png)
+
+直接成功了，我连扩展名都没改
+
+##### 代码审计
+
+```php
+<?php
+
+if( isset( $_POST[ 'Upload' ] ) ) {
+    // Where are we going to be writing to?
+    $target_path  = DVWA_WEB_PAGE_TO_ROOT . "hackable/uploads/";
+    $target_path .= basename( $_FILES[ 'uploaded' ][ 'name' ] );
+
+    // File information
+    $uploaded_name = $_FILES[ 'uploaded' ][ 'name' ];
+    $uploaded_type = $_FILES[ 'uploaded' ][ 'type' ];
+    $uploaded_size = $_FILES[ 'uploaded' ][ 'size' ];
+
+    // Is it an image?
+    if( ( $uploaded_type == "image/jpeg" || $uploaded_type == "image/png" ) &&
+        ( $uploaded_size < 100000 ) ) {
+
+        // Can we move the file to the upload folder?
+        if( !move_uploaded_file( $_FILES[ 'uploaded' ][ 'tmp_name' ], $target_path ) ) {
+            // No
+            echo '<pre>Your image was not uploaded.</pre>';
+        }
+        else {
+            // Yes!
+            echo "<pre>{$target_path} succesfully uploaded!</pre>";
+        }
+    }
+    else {
+        // Invalid file
+        echo '<pre>Your image was not uploaded. We can only accept JPEG or PNG images.</pre>';
+    }
+}
+
+?>
+```
+
+- ```php
+  ( $uploaded_type == "image/jpeg" || $uploaded_type == "image/png" ) &&
+          ( $uploaded_size < 100000 )
+  ```
+
+  做了简单的`MIME`类型验证和文件大小限制，文件大小的限制可以防止上传超大文件，但只有一个类型验证，防护范围有限，可以轻松绕过
+
+#### High
+
+测试了半天，我们制作的图片马最终成功上传![image-20260414155513315](./img/image-20260414155513315.png)
+
+可以确定的是该网站对文件类型和扩展名都做了验证，并且是白名单，所以只能通过修改文件内容的方式绕过
+
+##### 代码审计
+
+```php
+<?php
+
+if( isset( $_POST[ 'Upload' ] ) ) {
+    // Where are we going to be writing to?
+    $target_path  = DVWA_WEB_PAGE_TO_ROOT . "hackable/uploads/";
+    $target_path .= basename( $_FILES[ 'uploaded' ][ 'name' ] );
+
+    // File information
+    $uploaded_name = $_FILES[ 'uploaded' ][ 'name' ];
+    $uploaded_ext  = substr( $uploaded_name, strrpos( $uploaded_name, '.' ) + 1);
+    $uploaded_size = $_FILES[ 'uploaded' ][ 'size' ];
+    $uploaded_tmp  = $_FILES[ 'uploaded' ][ 'tmp_name' ];
+
+    // Is it an image?
+    if( ( strtolower( $uploaded_ext ) == "jpg" || strtolower( $uploaded_ext ) == "jpeg" || strtolower( $uploaded_ext ) == "png" ) &&
+        ( $uploaded_size < 100000 ) &&
+        getimagesize( $uploaded_tmp ) ) {
+
+        // Can we move the file to the upload folder?
+        if( !move_uploaded_file( $uploaded_tmp, $target_path ) ) {
+            // No
+            echo '<pre>Your image was not uploaded.</pre>';
+        }
+        else {
+            // Yes!
+            echo "<pre>{$target_path} succesfully uploaded!</pre>";
+        }
+    }
+    else {
+        // Invalid file
+        echo '<pre>Your image was not uploaded. We can only accept JPEG or PNG images.</pre>';
+    }
+}
+
+?>
+```
+
+可以看到代码对文件上传做了多种防护
+
+- ```php
+  ( strtolower( $uploaded_ext ) == "jpg" || strtolower( $uploaded_ext ) == "jpeg" || strtolower( $uploaded_ext ) == "png" ) &&
+          ( $uploaded_size < 100000 ) &&
+          getimagesize( $uploaded_tmp )
+  ```
+
+  文件后缀名小写+文件大小限制，这与Medium难度一致，但核心是多了`getimagesize`函数，用于检查文件头信息，判断是否为图片文件，这就是我们无法通过修改文件后缀和MIME类型绕过的原因
+
+  但`getimagesize`仍有不足，只检查文件头信息，我们使用的图片马就可以绕过，也可以通过在文件头增加图片文件头并修改扩展名的方式绕过
+
+  同时，没有针对上传目录的权限控制，攻击者可直接在目录执行，虽然这里是PHPStudy + DVWA的本地环境，但要知晓其危害性
+
+我们上传的图片马是无法直接执行的，但是可以通过DVWA的文件包含配合使用，图片马+LFI本来就是经典组合拳
+
