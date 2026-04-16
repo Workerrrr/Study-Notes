@@ -129,7 +129,80 @@ http://dvwa/vulnerabilities/xss_d/?default=<script>alert('XSS')</script>
 
 DOM型XSS执行时，除了URL，前端看不到脚本，这使得用户难以察觉
 
+### 过滤绕过
 
+#### 上下文感知绕过
+
+- HTML标签内
+
+  当输出点在HTML标签属性时，如`<input value="...">`，可以提前闭合引号并注入新事件
+
+  ```lisp
+  " onmouseover="alert(1)
+  ```
+
+- JavaScript中
+
+  当输出在JavaScript的`<script>`标签内，需要考虑使用闭合字符串或利用模板字符串，如`var name = '用户输入'`，如果输入`';alert(1);`就可以绕过
+
+#### 编码绕过
+
+- HTML实体编码
+
+  某些过滤仅检查`<`和`>`，但浏览器在解析HTML属性时会先解码
+
+  ```xml
+  <img src=x onerror="&#97;&#108;&#101;&#114;&#116;(1)">
+  ```
+
+- Unicode/URL编码
+
+  在 `javascript:` 伪协议或 `data:` 中使用
+
+- 多重编码
+
+  针对递归解码的过滤器，使用两次URL编码
+
+#### 事件与伪协议滥用
+
+- HTML5新事件
+
+  `onload`、`onerror`、`onfocus`、`onpointermove`等
+
+- 伪协议
+
+  比如
+
+  ```xml
+  <a href="javascript:alert(1)">click</a>
+  <iframe src="javascript:alert(1)">
+  ```
+
+- `<svg>`与`<math>`标签
+
+  这些标签内容允许脚本且对过滤宽松
+
+  ```xml
+  <svg><script>alert(1)</script>
+  ```
+
+#### 过滤检测对抗
+
+- 大小写混合
+
+  例如`<ScRiPt>`绕过黑名单
+
+- 双写绕过
+
+  例如`<scr<script>ipt>`，当过滤`<script>`仅删除一次时绕过
+
+- 利用换行与空格
+
+  `<script \n src="...">`某些正则可能遗漏
+
+- 字符截断
+
+  使用`%00`、`/`或Unicode控制字符干扰正则匹配
 
 待续
 

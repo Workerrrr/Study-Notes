@@ -141,11 +141,13 @@ BUUCTF Quoted-printable
 flag{那你也很棒哦}
 ```
 
-## Rabbit
+## OpenSSL
 
 特点是密文中常见加号`+`和斜杠`/`，常见开头`U2FsdGVkX1`
 
-样式`U2FsdGVkX1+xGPc26adN6IuQDyc=`表示`flag`
+OpenSSL通用加密格式支持`AES`、`DES`、`RC4`、`Rabbit`多种算法
+
+**不能仅靠字符串开头`U2FsdGVkX1`就判断其加密方式**
 
 ## 栅栏密码
 
