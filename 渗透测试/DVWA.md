@@ -885,3 +885,131 @@ if( isset( $_POST[ 'Upload' ] ) ) {
 
 我们上传的图片马是无法直接执行的，但是可以通过DVWA的文件包含配合使用，图片马+LFI本来就是经典组合拳
 
+
+
+### XSS(Reflected) 
+
+反射型XSS
+
+![image-20260521144532746](./img/image-20260521144532746.png)
+
+#### Low
+
+页面提供了一个输入框，让我们输入姓名
+
+随便输入一个试试
+
+![image-20260521144825430](./img/image-20260521144825430.png)
+
+![image-20260521145535550](./img/image-20260521145535550.png)
+
+下方直接回显了我们的输入，并且有URL传参，直接尝试构造XSS
+
+![image-20260521145633368](./img/image-20260521145633368.png)
+
+直接回车，模拟被害者点击恶意链接
+
+![image-20260415164507884](./img/image-20260415164507884.png)
+
+XSS攻击成功
+
+##### 代码审计
+
+```php
+<?php
+
+header ("X-XSS-Protection: 0");
+
+// Is there any input?
+if( array_key_exists( "name", $_GET ) && $_GET[ 'name' ] != NULL ) {
+    // Feedback for end user
+    echo '<pre>Hello ' . $_GET[ 'name' ] . '</pre>';
+}
+
+?>
+```
+
+- `echo '<pre>Hello ' . $_GET[ 'name' ] . '</pre>'`
+
+  从URL接收用户输入，并直接回显到响应中，中途没有任何过滤手段，是造成XSS的直接原因
+
+#### Medium
+
+URL构造XSS
+
+![image-20260521145633368](./img/image-20260521145633368.png)
+
+![image-20260521150351691](./img/image-20260521150351691.png)
+
+`alert('XSS')`直接回显了，说明可能过滤了`<script>`，尝试大写绕过
+
+![image-20260521150502566](./img/image-20260521150502566.png)
+
+没想到居然直接成功了
+
+##### 代码审计
+
+```php
+
+<?php
+
+header ("X-XSS-Protection: 0");
+
+// Is there any input?
+if( array_key_exists( "name", $_GET ) && $_GET[ 'name' ] != NULL ) {
+    // Get input
+    $name = str_replace( '<script>', '', $_GET[ 'name' ] );
+
+    // Feedback for end user
+    echo "<pre>Hello {$name}</pre>";
+}
+
+?>
+```
+
+- `$name = str_replace( '<script>', '', $_GET[ 'name' ] );`
+
+  做了一个简单的过滤，但只过滤了`<script>`，简单的大写即可绕过
+
+#### High
+
+用上面的大写绕过试试
+
+![image-20260521190802484](./img/image-20260521190802484.png)
+
+居然只回显了一个`>`，尝试双写绕过也不行
+
+测试`<script>`无回显，测试`<scr1ipt>`回显`>`，测试`<script1>`回显`1>`
+
+很显然，这道题把`<script>`过滤了
+
+我测试了`img`、`iframe`、`object`多个标签都不行，不知道为什么，于是去网上找了找攻略，给出的payload是
+
+```html
+<img src=# onerror=alert("xss")>
+```
+
+这里不能直接修改URL，因为`#`会影响URL解析，可以将其改为`%23`
+
+##### 代码审计
+
+```php
+<?php
+
+header ("X-XSS-Protection: 0");
+
+// Is there any input?
+if( array_key_exists( "name", $_GET ) && $_GET[ 'name' ] != NULL ) {
+    // Get input
+    $name = preg_replace( '/<(.*)s(.*)c(.*)r(.*)i(.*)p(.*)t/i', '', $_GET[ 'name' ] );
+
+    // Feedback for end user
+    echo "<pre>Hello {$name}</pre>";
+}
+
+?>
+```
+
+- `$name = preg_replace( '/<(.*)s(.*)c(.*)r(.*)i(.*)p(.*)t/i', '', $_GET[ 'name' ] );`
+
+  直接把`<script>`标签内的所有内容全部过滤，导致针对`<script>`的绕过全部失效，但是可以使用其它标签进行攻击

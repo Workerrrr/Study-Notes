@@ -277,6 +277,8 @@ XSS很重要的利用方式就是窃取用户的Cookie后配合CSRF进行攻击
 **常见无需用户交互的事件属性**
 
 ```
+<img src=# onerror=alert("xss")>
+
 <style onreadystatechange=alert(1)></style>
 
 <iframe onreadystatechange=alert(1)></iframe>
@@ -344,8 +346,16 @@ DOM型XSS的主要原因是危险DOM属性和API，最好的查找办法是进�
 
 ### 漏洞防御
 
+反射型与存储型 XSS 漏洞的根本原因在于将用户可控的数据未经适当的过滤就直接复制到应用程序的响应中，被浏览器自动解析执行
 
+#### 输入验证
 
-https://www.cnblogs.com/red1giant-star/p/19795780#_label1
+防御XSS的第一步就是输入验证，验证用户输入的合法性，拒绝相信用户输入的任何数据
 
-https://xz.aliyun.com/news/17955
+尽量做到前端和后端双重验证
+
+#### 输出验证
+
+确保在响应中对用户输入的数据进行HTML编码，防止被当作HTML或JavaScript代码执行
+
+某些论坛或博客支持允许用户以HTML格式提交数据，这种情况下，应该使用专门的框架来确认用户提交的HTML标签不含可能执行的恶意脚本
